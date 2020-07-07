@@ -29,7 +29,7 @@ parser.add_argument('--index',  '-i', dest='elastic_index',  action='store', def
 parser.add_argument("paths", nargs=REMAINDER, help='Target audit log file(s)', metavar='paths')
 args, extra = parser.parse_known_args(sys.argv[1:])
 
-# Define the eElastic search client 
+# Define the ElasticSearch client 
 es = Elasticsearch(args.elastic_server, index=args.elastic_index)
 print(f"[?] Using server: {args.elastic_server}")
 print(f"[?] Using index: {args.elastic_index}")
@@ -53,7 +53,7 @@ if __name__ == "__main__":
         actions = [
             {
                 "_index": args.elastic_index, 
-                "_id": hex(abs(hash(json.dumps(record, sort_keys=True, default=str)))), 
+                "_id": hex(abs(hash(json.dumps(record, default=str)))), 
                 "_type": "_doc", 
                 "_source": record
             } for record in csv_reader(path)
