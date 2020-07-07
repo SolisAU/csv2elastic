@@ -24,8 +24,8 @@ print("[*] CSV 2 Elastic script v" + script_ver)
 print("[!] Process started at: " + str(start_dt.strftime("%d/%m/%Y %H:%M:%S")))
 
 parser = ArgumentParser(prog='upload2elastic', description='Push any CSV to ElasticSearch')
-parser.add_argument('--server', '-s', dest='elastic_server', action='store', default=os.environ.get('ES_HOSTS', 'http://10.80.121.230:9200'), help='ElasticSearch server(s)')
-parser.add_argument('--index',  '-i', dest='elastic_index',  action='store', default='iis-%s' % hex(abs(hash(json.dumps(sys.argv[1:]))))[2:10], help='ElasticSearch index name')
+parser.add_argument('--server', '-s', dest='elastic_server', action='store', default=os.environ.get('ES_HOSTS', 'http://127.0.0.1:9200'), help='ElasticSearch server(s)')
+parser.add_argument('--index',  '-i', dest='elastic_index',  action='store', default='%s' % hex(abs(hash(json.dumps(sys.argv[1:]))))[2:10], help='ElasticSearch index name')
 parser.add_argument("paths", nargs=REMAINDER, help='Target audit log file(s)', metavar='paths')
 args, extra = parser.parse_known_args(sys.argv[1:])
 
