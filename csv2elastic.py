@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 
 from argparse import ArgumentParser, REMAINDER
-from elasticsearch import Elasticsearch
-from elasticsearch.helpers import bulk, parallel_bulk
+from elasticsearch import helpers, Elasticsearch
+#from elasticsearch.helpers import bulk, parallel_bulk
 
 import sys, os, csv, json, re, dateutil.parser, pprint, datetime
 
-csv.field_size_limit(sys.maxsize)
+#csv.field_size_limit(sys.maxsize)
+# added to fix for Windows
+csv.field_size_limit(2147483647)
 
 if sys.version_info[0] < 3:
     print(
@@ -18,7 +20,7 @@ if sys.version_info[0] < 3:
 start_dt = datetime.datetime.now()
 end_dt = start_dt
 
-script_ver = "1.22"
+script_ver = "1.23"
 
 print("[*] CSV 2 Elastic script v" + script_ver)
 print("[!] Process started at: " + str(start_dt.strftime("%d/%m/%Y %H:%M:%S")))
@@ -38,8 +40,17 @@ print(f"[?] Using index: {args.elastic_index}")
 def csv_reader(path, delimiter=','):
     with open(path, errors="ignore") as file_obj:
         reader = csv.DictReader(file_obj)
+#        helpers.bulk(es, reader)
         for row in reader:
-            yield row 
+            print (row)
+            doc = {
+                "_type": "_doc",
+                "_source": row
+            }
+            #print (doc)
+            res = es.index(index=args.elastic_index, body=row)
+            print(res['result'])
+            #yield row 
 
 if __name__ == "__main__":
     # Loop through each csv in the paths 
@@ -50,19 +61,20 @@ if __name__ == "__main__":
         
         print(f"[!] Importing {path} into memory for conversion ...")
         # Define the actions for each row in the csv
-        actions = [
-            {
-                "_index": args.elastic_index, 
-                "_id": hex(abs(hash(json.dumps(record, default=str)))), 
-                "_type": "_doc", 
-                "_source": record
-            } for record in csv_reader(path)
-        ]
+        csv_reader(path)
+#        actions = [
+#            {
+#                "_index": args.elastic_index, 
+#                "_id": hex(abs(hash(json.dumps(record, default=str)))), 
+#                "_type": "_doc", 
+#                "_source": record
+#            } for record in csv_reader(path)
+#        ]
 
-        print(f"[!] Pushing {path} into ElasticSearch...")
+#        print(f"[!] Pushing {path} into ElasticSearch...")
 
-        for ok, info in parallel_bulk(es, actions=actions):
-            if not ok: print(f"Error {info}")
+#        for ok, info in parallel_bulk(es, actions=actions):
+#            if not ok: print(f"Error {info}")
 
     end_dt = datetime.datetime.now()
     duration_full = end_dt - start_dt
