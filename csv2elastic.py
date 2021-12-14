@@ -50,12 +50,13 @@ def to_csv(path, csv_columns, dict_row, delimeter=','):
 
 # Open and yeild each row in the csv
 def csv_reader(path, uningested_path, delimiter=','):
+    global error_count
     with open(path, errors="ignore") as file_obj:
         reader = csv.DictReader(file_obj)
 #        helpers.bulk(es, reader)
         rows = list(reader)
         count = 0
-        error_count = 0
+
         with alive_bar(len(rows), force_tty=True) as bar:
             for row in rows:
                 try:
@@ -64,7 +65,7 @@ def csv_reader(path, uningested_path, delimiter=','):
                         "_type": "_doc",
                         "_source": row
                     }
-                    #print (doc)
+
                     res = es.index(index=args.elastic_index, document=row)
                     result_success = res['result']
                     count += 1
@@ -75,19 +76,21 @@ def csv_reader(path, uningested_path, delimiter=','):
                     sys.exit(1)
 
                 except Exception as e:
+                    head, tail = os.path.split(path)
                     error_count += 1
                     print(e)
                     # create entry in error file
-                    to_csv('error.csv', ['error on line', 'error msg'], {'error on line': str(count + 2), 'error msg': e})
+                    to_csv(tail + '_error.csv', ['error on line', 'error msg'], {'error on line': str(count + 2), 'error msg': e})
 
                     # create entry in uningested file
-                    to_csv(uningested_path, reader.fieldnames, row)
+                    to_csv(tail + '_' + uningested_path, reader.fieldnames, row)
     return error_count
 
 
-
 if __name__ == "__main__":
+    global error_count
     error_count = 0
+
     # Loop through each csv in the paths 
     for path in args.paths:
         # Check if the csv file exists
