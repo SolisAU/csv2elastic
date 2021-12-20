@@ -3,6 +3,8 @@ alive-progress==2.1.0
 certifi==2021.10.8
 elasticsearch==7.16.0
 grapheme==0.6.0
+numpy==1.21.4
+psutil==5.8.0
 python-dateutil==2.8.2
 six==1.16.0
 urllib3==1.26.7
