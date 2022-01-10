@@ -69,7 +69,7 @@ def parralel_bulk_ingest(path, rows, unigested_path, pipeline):
         except Exception as e:
             api_error_count = int(str(e).split(',')[0].split(' ')[0][2:])
             error_count += api_error_count
-            bar(len(chunk) - api_error_count)
+            bar(len(rows) - api_error_count)
             print(e)
 
     return error_count
