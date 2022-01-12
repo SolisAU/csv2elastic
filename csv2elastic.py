@@ -7,6 +7,8 @@ from alive_progress import alive_bar
 import json
 import numpy as np
 import psutil
+import apachelogs
+import shlex
 
 #csv.field_size_limit(sys.maxsize)
 # added to fix for Windows
@@ -34,6 +36,7 @@ parser.add_argument('--uningested_path',  '-e', dest='uningested_path',  action=
 parser.add_argument('--infile_type', '-t', dest='input_file_type', action='store', default='csv', help='Input file type, default csv, options(csv or json)')
 parser.add_argument('--bulk', '-b', dest='bulk_api', action='store_true', help='Set to use ElasticSearch bulk API request vs individual reguest')
 parser.add_argument('--pipeline', '-p', dest='pipeline', action='store', help='Set to use ElasticSearch pipeline')
+parser.add_argument('--csv_delimiter', '-d', dest='csv_delimiter', action='store', default=',', help='Set the character  input csv delimitation')
 parser.add_argument("paths", nargs=REMAINDER, help='Target audit log file(s)', metavar='paths')
 args, extra = parser.parse_known_args(sys.argv[1:])
 
@@ -44,6 +47,53 @@ print(f"[?] Using index: {args.elastic_index}")
 
 # Constants
 MAX_CHUNK_SIZE = 56000
+LOG_PARSER_FORMAT = "%h %l %u %t \"%r\" %s %b \"%{Referer}i\" \"%{User-Agent}i\" \"%{Host}i\" \"%{Cookie}i\""
+
+
+def combined_log_to_json(rows):
+    temp_rows = []
+
+    print("[!] Removing unwanted data from combined log")
+    with alive_bar(len(rows), force_tty=True) as bar:
+        for row in rows:
+            temp_row = shlex.split(row)
+
+            # Remove data from original that we don't want to pass to apachelogs for parsing
+            del temp_row[5]
+            del temp_row[8]
+            del temp_row[8]
+
+            # Building a new string from after removing unwanted data
+            temp_rows.append(temp_row[0] + " " + temp_row[1] + " " + temp_row[2] + " " + temp_row[3] + " " +
+                             temp_row[4] + " \"" + temp_row[5] + "\"" + " " + temp_row[6] + " " + temp_row[7] + " \"" +
+                             temp_row[8] + "\"" + " \"" + temp_row[9] + "\"" + " \"" + temp_row[14] + "\"" + " \"" +
+                             temp_row[15] + "\"")
+            bar(1)
+
+    # Parse strings with apachelogs applying the LOG_PARSER_FORMAT
+    parsed_output = apachelogs.parse_lines(LOG_PARSER_FORMAT, temp_rows)
+
+    # Clear temp_rows
+    temp_rows = []
+
+    # Build objects to be converted to json strings
+    print("[!] Building json data from combined log")
+    with alive_bar(len(rows), force_tty=True) as bar:
+        for i in parsed_output:
+            # Printing used for debugging
+            # print(i.remote_host, i.remote_logname, i.remote_user, i.request_time_fields["timestamp"], i.request_line,
+            #       i.status, i.bytes_sent, i.headers_in["Referer"], i.headers_in["User-Agent"], i.headers_in["Host"],
+            #       i.headers_in["Cookie"])
+            parsed_object = {"remote_host": i.remote_host, "remote_logname": i.remote_logname, "remote_user": i.remote_user,
+                     "@timestamp": i.request_time_fields["timestamp"].strftime("%Y-%m-%dT%H:%M:%S.%f%z"),
+                     "request_line": i.request_line.split(' ', 1)[1], "request_method": i.request_line.split(' ', 1)[0],
+                     "status": i.status, "bytes_sent": i.bytes_sent, "referer": i.headers_in["Referer"],
+                     "user_agent": i.headers_in["User-Agent"], "host": i.headers_in["Host"],
+                     "Cookie": i.headers_in["Cookie"]}
+
+            temp_rows.append(json.dumps(parsed_object))
+            bar(1)
+    return temp_rows
 
 
 # Save row .csv
@@ -97,7 +147,7 @@ def bulk_ingest(path, rows, unigested_path, pipeline):
     return error_count
 
 
-def single_ingest(path, rows, uningested_path, pipeline):
+def single_ingest(path, rows, uningested_path, fieldnames=None, pipeline=None):
     global error_count
     count = 0
     with alive_bar(len(rows), force_tty=True) as bar:
@@ -120,7 +170,8 @@ def single_ingest(path, rows, uningested_path, pipeline):
                 to_csv(tail + '_error.csv', ['error on line', 'error msg'], {'error on line': str(count + 2), 'error msg': e})
 
                 # create entry in uningested file
-                to_csv(tail + '_' + uningested_path, reader.fieldnames, row)
+                if fieldnames:
+                    to_csv(tail + '_' + uningested_path, fieldnames, row)
     return error_count
 
 
@@ -129,15 +180,18 @@ def doc_reader(path, uningested_path, infile_type, bulk, pipeline, delimiter=','
     global error_count
     with open(path, errors='ignore') as file_obj:
         if infile_type == 'csv':
-            reader = csv.DictReader(file_obj)
+            reader = csv.DictReader(file_obj, delimiter=delimiter)
             rows = list(reader)
         elif infile_type == 'json':
             rows = list(file_obj)
+        elif infile_type == 'combined_logs':
+            pre_proc_rows = list(file_obj)
+            rows = combined_log_to_json(pre_proc_rows)
 
         if bulk:
             error_count = parralel_bulk_ingest(path, rows, uningested_path, pipeline)
         else:
-            error_count = single_ingest(path, rows, uningested_path, pipeline)
+            error_count = single_ingest(path, rows, uningested_path, reader.fieldnames, pipeline)
 
     return error_count
 
@@ -154,7 +208,7 @@ if __name__ == "__main__":
         
         print(f"[!] Importing {path} into memory for conversion ...")
         # Define the actions for each row in the csv
-        error_count = doc_reader(path, args.uningested_path, args.input_file_type, args.bulk_api, args.pipeline)
+        error_count = doc_reader(path, args.uningested_path, args.input_file_type, args.bulk_api, args.pipeline, args.csv_delimiter)
 
     end_dt = datetime.datetime.now()
     duration_full = end_dt - start_dt
