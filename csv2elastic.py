@@ -80,13 +80,23 @@ def combined_log_to_json(rows):
     print("[!] Building json data from combined log")
     with alive_bar(len(rows), force_tty=True) as bar:
         for i in parsed_output:
+
+            # Check if request_line can be split to split i.e GET from /path
+            request_lenth = i.request_line.split(' ', 1)
+            if len(request_lenth) > 1:
+                request_line = i.request_line.split(' ', 1)[1]
+                request_method = i.request_line.split(' ', 1)[0]
+            else:
+                request_line = ""
+                request_method = ""
+
             # Printing used for debugging
             # print(i.remote_host, i.remote_logname, i.remote_user, i.request_time_fields["timestamp"], i.request_line,
             #       i.status, i.bytes_sent, i.headers_in["Referer"], i.headers_in["User-Agent"], i.headers_in["Host"],
             #       i.headers_in["Cookie"])
             parsed_object = {"remote_host": i.remote_host, "remote_logname": i.remote_logname, "remote_user": i.remote_user,
                      "@timestamp": i.request_time_fields["timestamp"].strftime("%Y-%m-%dT%H:%M:%S.%f%z"),
-                     "request_line": i.request_line.split(' ', 1)[1], "request_method": i.request_line.split(' ', 1)[0],
+                     "request_line": request_line, "request_method": request_method,
                      "status": i.status, "bytes_sent": i.bytes_sent, "referer": i.headers_in["Referer"],
                      "user_agent": i.headers_in["User-Agent"], "host": i.headers_in["Host"],
                      "Cookie": i.headers_in["Cookie"]}
