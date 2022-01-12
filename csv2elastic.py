@@ -36,7 +36,7 @@ parser.add_argument('--uningested_path',  '-e', dest='uningested_path',  action=
 parser.add_argument('--infile_type', '-t', dest='input_file_type', action='store', default='csv', help='Input file type, default csv, options(csv or json)')
 parser.add_argument('--bulk', '-b', dest='bulk_api', action='store_true', help='Set to use ElasticSearch bulk API request vs individual reguest')
 parser.add_argument('--pipeline', '-p', dest='pipeline', action='store', help='Set to use ElasticSearch pipeline')
-parser.add_argument('--csv_delimiter', '-d', dest='csv_delimiter', action='store', default=',', help='Set the character  input csv delimitation')
+parser.add_argument('--csv_delimiter', '-d', dest='csv_delimiter', action='store', default=',', help='Set the character for input_csv delimitation')
 parser.add_argument("paths", nargs=REMAINDER, help='Target audit log file(s)', metavar='paths')
 args, extra = parser.parse_known_args(sys.argv[1:])
 
