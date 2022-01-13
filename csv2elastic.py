@@ -47,31 +47,74 @@ print(f"[?] Using index: {args.elastic_index}")
 
 # Constants
 MAX_CHUNK_SIZE = 56000
-LOG_PARSER_FORMAT = "%h %l %u %t \"%r\" %s %b \"%{Referer}i\" \"%{User-Agent}i\" \"%{Host}i\" \"%{Cookie}i\""
+LOG_PARSER_FORMAT = "%h %l %u %t \"%r\" %s %b \"%{Referer}i\" \"%{User-Agent}i\" \"%{Host}i\" \"%{Cookie}i\" %{index}c"
 
 
-def combined_log_to_json(rows):
+def find_missing(lst, full_count):
+    start, end = 1, full_count
+    return sorted(set(range(start, end + 1)).difference(lst))
+
+
+def handle_combined_log_errors(path, parsed_output, temp_rows, full_count):
+    global error_count
+    temp_index = []
+    for i in parsed_output:
+        temp_index.append(int(i.cryptography["index"]))
+
+    error_index = find_missing(temp_index, full_count)
+    for i in error_index:
+        print(temp_rows[i - 1])
+        head, tail = os.path.split(path)
+        error_count += 1
+        # create entry in error file
+        to_csv(tail + '_error.csv', ['error on line', 'error msg', 'original_data'], {'error on line': i, 'error msg': 'Failed, apachelogs could not parse row', 'original_data': temp_rows[i - 1]})
+
+
+def combined_log_to_json(path, rows):
+    global error_count
     temp_rows = []
 
     print("[!] Removing unwanted data from combined log")
     with alive_bar(len(rows), force_tty=True) as bar:
+        counter = 1
         for row in rows:
-            temp_row = shlex.split(row)
+            try:
+                temp_row = shlex.split(row)
 
-            # Remove data from original that we don't want to pass to apachelogs for parsing
-            del temp_row[5]
-            del temp_row[8]
-            del temp_row[8]
+                # Remove data from original that we don't want to pass to apachelogs for parsing
+                del temp_row[5]
+                del temp_row[8]
+                del temp_row[8]
 
-            # Building a new string from after removing unwanted data
-            temp_rows.append(temp_row[0] + " " + temp_row[1] + " " + temp_row[2] + " " + temp_row[3] + " " +
-                             temp_row[4] + " \"" + temp_row[5] + "\"" + " " + temp_row[6] + " " + temp_row[7] + " \"" +
-                             temp_row[8] + "\"" + " \"" + temp_row[9] + "\"" + " \"" + temp_row[14] + "\"" + " \"" +
-                             temp_row[15] + "\"")
-            bar(1)
+                # Building a new string from after removing unwanted data
+                temp_rows.append(temp_row[0] + " " + temp_row[1] + " " + temp_row[2] + " " + temp_row[3] + " " +
+                                 temp_row[4] + " \"" + temp_row[5] + "\"" + " " + temp_row[6] + " " + temp_row[7] + " \"" +
+                                 temp_row[8] + "\"" + " \"" + temp_row[9] + "\"" + " \"" + temp_row[14] + "\"" + " \"" +
+                                 temp_row[15] + "\"" + " " + str(counter))
+                bar(1)
+                counter += 1
+            except Exception as e:
+                print('failed to remove dup: ', e)
+                head, tail = os.path.split(path)
+                error_count += 1
+                to_csv(tail + '_error.csv', ['error on line', 'error msg', 'original_data'],
+                       {'error on line': counter, 'error msg': e,
+                        'original_data': row})
 
     # Parse strings with apachelogs applying the LOG_PARSER_FORMAT
-    parsed_output = apachelogs.parse_lines(LOG_PARSER_FORMAT, temp_rows)
+
+    parsed_output_count = len(list(apachelogs.parse_lines(LOG_PARSER_FORMAT, temp_rows, ignore_invalid=True)))
+    parsed_output_errors = apachelogs.parse_lines(LOG_PARSER_FORMAT, temp_rows, ignore_invalid=True)
+    parsed_output = apachelogs.parse_lines(LOG_PARSER_FORMAT, temp_rows, ignore_invalid=True)
+
+    # print(parsed_output_count)
+    # print(len(temp_rows))
+
+    if parsed_output_count != len(temp_rows):
+        handle_combined_log_errors(path, parsed_output_errors, temp_rows, len(temp_rows))
+
+
+    # sys.exit()
 
     # Clear temp_rows
     temp_rows = []
@@ -79,30 +122,38 @@ def combined_log_to_json(rows):
     # Build objects to be converted to json strings
     print("[!] Building json data from combined log")
     with alive_bar(len(rows), force_tty=True) as bar:
+        counter = 1
         for i in parsed_output:
-
             # Check if request_line can be split to split i.e GET from /path
-            request_lenth = i.request_line.split(' ', 1)
-            if len(request_lenth) > 1:
-                request_line = i.request_line.split(' ', 1)[1]
-                request_method = i.request_line.split(' ', 1)[0]
-            else:
-                request_line = ""
-                request_method = ""
+            try:
+                request_lenth = i.request_line.split(' ', 1)
+                if len(request_lenth) > 1:
+                    request_line = i.request_line.split(' ', 1)[1]
+                    request_method = i.request_line.split(' ', 1)[0]
+                else:
+                    request_line = ""
+                    request_method = ""
 
-            # Printing used for debugging
-            # print(i.remote_host, i.remote_logname, i.remote_user, i.request_time_fields["timestamp"], i.request_line,
-            #       i.status, i.bytes_sent, i.headers_in["Referer"], i.headers_in["User-Agent"], i.headers_in["Host"],
-            #       i.headers_in["Cookie"])
-            parsed_object = {"remote_host": i.remote_host, "remote_logname": i.remote_logname, "remote_user": i.remote_user,
-                     "@timestamp": i.request_time_fields["timestamp"].strftime("%Y-%m-%dT%H:%M:%S.%f%z"),
-                     "request_line": request_line, "request_method": request_method,
-                     "status": i.status, "bytes_sent": i.bytes_sent, "referer": i.headers_in["Referer"],
-                     "user_agent": i.headers_in["User-Agent"], "host": i.headers_in["Host"],
-                     "Cookie": i.headers_in["Cookie"]}
+                # Printing used for debugging
+                # print(i.remote_host, i.remote_logname, i.remote_user, i.request_time_fields["timestamp"], i.request_line,
+                #       i.status, i.bytes_sent, i.headers_in["Referer"], i.headers_in["User-Agent"], i.headers_in["Host"],
+                #       i.headers_in["Cookie"])
+                parsed_object = {"remote_host": i.remote_host, "remote_logname": i.remote_logname, "remote_user": i.remote_user,
+                         "@timestamp": i.request_time_fields["timestamp"].strftime("%Y-%m-%dT%H:%M:%S.%f%z"),
+                         "request_line": request_line, "request_method": request_method,
+                         "status": i.status, "bytes_sent": i.bytes_sent, "referer": i.headers_in["Referer"],
+                         "user_agent": i.headers_in["User-Agent"], "host": i.headers_in["Host"],
+                         "Cookie": i.headers_in["Cookie"]}
 
-            temp_rows.append(json.dumps(parsed_object))
-            bar(1)
+                temp_rows.append(json.dumps(parsed_object))
+                bar(1)
+                counter += 1
+            except Exception as e:
+                print('Failed to build json: ', e)
+                head, tail = os.path.split(path)
+                error_count += 1
+                to_csv(tail + '_error.csv', ['error on line', 'error msg'],
+                       {'error on line': counter, 'error msg': e})
     return temp_rows
 
 
@@ -196,7 +247,7 @@ def doc_reader(path, uningested_path, infile_type, bulk, pipeline, delimiter=','
             rows = list(file_obj)
         elif infile_type == 'combined_logs':
             pre_proc_rows = list(file_obj)
-            rows = combined_log_to_json(pre_proc_rows)
+            rows = combined_log_to_json(path, pre_proc_rows)
 
         if bulk:
             error_count = parralel_bulk_ingest(path, rows, uningested_path, pipeline)
